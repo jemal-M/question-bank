@@ -12,7 +12,7 @@ class QuestionBank {
         required this.description,
          required this.createdAt,
          required this.questionCount,
-         required this.config
+         required this.config, required String filePath
     });
     Map<String,dynamic> toMap(){
      return {
@@ -29,16 +29,7 @@ class QuestionBank {
     description: map['description'],
      createdAt: map['createdAt'], 
      questionCount: map['questionCount'],
-      config: map['config']);
-    }
-    static Map<String,dynamic> _parseConfig(String? configString){
-        if(configString==null) return {};
-        try{
-  return {};
-        }
-        catch(e){
-return {};
-        }
+      config: map['config'], filePath: '');
     }
 }
 

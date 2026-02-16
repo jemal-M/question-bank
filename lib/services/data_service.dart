@@ -1,40 +1,38 @@
 import 'dart:convert';
-import 'package:sqflite/sqflite.dart';
 import 'package:path/path.dart';
 import 'package:path_provider/path_provider.dart';
+import 'package:sqflite/sqflite.dart';
 import '../models/question_bank.dart';
-import '../models/question.dart';
 import '../utils/constants.dart';
 
 class DatabaseService {
   static final DatabaseService _instance = DatabaseService._internal();
   factory DatabaseService() => _instance;
   DatabaseService._internal();
-  
+
   static Database? _database;
-  
+
   Future<Database> get database async {
     if (_database != null) return _database!;
     _database = await _initDatabase();
     return _database!;
   }
-  
+
   Future<Database> _initDatabase() async {
     final documentsDirectory = await getApplicationDocumentsDirectory();
-    final path = join(documentsDirectory.path, Constants.databaseName);
-    
-    return await openDatabase(
+    final path = join(documentsDirectory.path, Constant.dattaBaseNmae);
+
+    return openDatabase(
       path,
-      version: Constants.databaseVersion,
+      version: Constant.dataBaseVersion,
       onCreate: _onCreate,
       onUpgrade: _onUpgrade,
     );
   }
-  
+
   Future<void> _onCreate(Database db, int version) async {
-    // Create banks table
     await db.execute('''
-      CREATE TABLE ${Constants.tableBanks}(
+      CREATE TABLE ${Constant.tableBanks}(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT NOT NULL,
         description TEXT,
@@ -43,10 +41,9 @@ class DatabaseService {
         config TEXT
       )
     ''');
-    
-    // Create bank configurations table for field definitions
+
     await db.execute('''
-      CREATE TABLE ${Constants.tableConfig}(
+      CREATE TABLE ${Constant.tableConfig}(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         bankId INTEGER NOT NULL,
         fieldName TEXT NOT NULL,
@@ -54,38 +51,32 @@ class DatabaseService {
         displayName TEXT,
         isRequired INTEGER DEFAULT 0,
         displayOrder INTEGER,
-        FOREIGN KEY (bankId) REFERENCES ${Constants.tableBanks}(id) ON DELETE CASCADE
+        FOREIGN KEY (bankId) REFERENCES ${Constant.tableBanks}(id) ON DELETE CASCADE
       )
     ''');
   }
-  
-  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
-    // Handle upgrades if needed
-  }
-  
-  // Dynamic table creation for question banks
+
+  Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {}
+
   Future<void> createQuestionBankTable(int bankId, List<Map<String, dynamic>> fields) async {
     final db = await database;
     final tableName = 'bank_${bankId}_questions';
-    
-    // Build CREATE TABLE statement dynamically based on fields
-    StringBuffer createSQL = StringBuffer('''
+
+    final createSql = StringBuffer('''
       CREATE TABLE IF NOT EXISTS $tableName(
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         createdAt TEXT NOT NULL
     ''');
-    
-    // Add dynamic columns based on field configurations
-    for (var field in fields) {
-      String columnType = _mapFieldTypeToSQLite(field['fieldType']);
-      createSQL.write(', ${field['fieldName']} $columnType');
+
+    for (final field in fields) {
+      final columnType = _mapFieldTypeToSQLite(field['fieldType'] as String);
+      createSql.write(', ${field['fieldName']} $columnType');
     }
-    
-    createSQL.write(')');
-    
-    await db.execute(createSQL.toString());
+
+    createSql.write(')');
+    await db.execute(createSql.toString());
   }
-  
+
   String _mapFieldTypeToSQLite(String fieldType) {
     switch (fieldType) {
       case 'number':
@@ -97,23 +88,20 @@ class DatabaseService {
         return 'TEXT';
     }
   }
-  
-  // Question Bank CRUD Operations
+
   Future<int> createQuestionBank(QuestionBank bank, List<Map<String, dynamic>> fields) async {
     final db = await database;
-    
-    // Insert bank record
-    final bankId = await db.insert(Constants.tableBanks, {
+
+    final bankId = await db.insert(Constant.tableBanks, {
       'name': bank.name,
       'description': bank.description,
       'createdAt': bank.createdAt.toIso8601String(),
       'questionCount': 0,
       'config': json.encode(bank.config),
     });
-    
-    // Insert field configurations
-    for (var field in fields) {
-      await db.insert(Constants.tableConfig, {
+
+    for (final field in fields) {
+      await db.insert(Constant.tableConfig, {
         'bankId': bankId,
         'fieldName': field['fieldName'],
         'fieldType': field['fieldType'],
@@ -122,63 +110,49 @@ class DatabaseService {
         'displayOrder': field['displayOrder'],
       });
     }
-    
-    // Create dynamic table for questions
+
     await createQuestionBankTable(bankId, fields);
-    
     return bankId;
   }
-  
+
   Future<List<QuestionBank>> getAllQuestionBanks() async {
     final db = await database;
-    final List<Map<String, dynamic>> maps = await db.query(Constants.tableBanks);
-    
-    return List.generate(maps.length, (i) {
-      return QuestionBank.fromMap(maps[i]);
-    });
+    final maps = await db.query(Constant.tableBanks);
+    return List.generate(maps.length, (i) => QuestionBank.fromMap(maps[i]));
   }
-  
-  // Question Operations
+
   Future<int> addQuestion(int bankId, Map<String, dynamic> questionData) async {
     final db = await database;
     final tableName = 'bank_${bankId}_questions';
-    
-    // Add createdAt
+
     questionData['createdAt'] = DateTime.now().toIso8601String();
-    
-    // Insert question
     final questionId = await db.insert(tableName, questionData);
-    
-    // Update question count in banks table
-    await db.update(
-      Constants.tableBanks,
-      {'questionCount': raw('questionCount + 1')},
-      where: 'id = ?',
-      whereArgs: [bankId],
+
+    await db.rawUpdate(
+      'UPDATE ${Constant.tableBanks} SET questionCount = questionCount + 1 WHERE id = ?',
+      [bankId],
     );
-    
+
     return questionId;
   }
-  
+
   Future<List<Map<String, dynamic>>> getQuestions(int bankId) async {
     final db = await database;
     final tableName = 'bank_${bankId}_questions';
-    
-    // Check if table exists
+
     final tables = await db.rawQuery(
-      "SELECT name FROM sqlite_master WHERE type='table' AND name='$tableName'"
+      "SELECT name FROM sqlite_master WHERE type='table' AND name=?",
+      [tableName],
     );
-    
+
     if (tables.isEmpty) return [];
-    
-    return await db.query(tableName);
+    return db.query(tableName);
   }
-  
-  // Get field configuration for a bank
+
   Future<List<Map<String, dynamic>>> getBankFields(int bankId) async {
     final db = await database;
-    return await db.query(
-      Constants.tableConfig,
+    return db.query(
+      Constant.tableConfig,
       where: 'bankId = ?',
       whereArgs: [bankId],
       orderBy: 'displayOrder ASC',
